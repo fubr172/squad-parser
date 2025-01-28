@@ -1,7 +1,8 @@
 import re
 import logging
-import mmap
 import os
+import time
+import keyboard
 
 # Настройка логирования
 logging.basicConfig(level=logging.INFO,
@@ -209,59 +210,63 @@ def format_event(action, data):
             f"{timestamp} Игрок {player_name} с EOS ID {eos_id} и Steam ID {steam_id} покинул транспорт {vehicle_name} "
             f"({asset_name}) на сиденье {seat_number}.")
 
-    if action == 'unpossess_vehicle':
-        player_name = data.get('player_name', 'неизвестный игрок')
-        eos_id = data.get('eos_id', 'неизвестный EOS ID')
-        steam_id = data.get('steam_id', 'неизвестный Steam ID')
-        vehicle_name = data.get('vehicle_name', 'неизвестный транспорт')
-        asset_name = data.get('asset_name', 'неизвестный актив')
-        seat_number = data.get('seat_number', 'неизвестное сиденье')
-        return (
-            f"{timestamp} Игрок {player_name} с EOS ID {eos_id} и Steam ID {steam_id} покинул транспорт {vehicle_name} "
-            f"({asset_name}) на сиденье {seat_number}.")
-
-    return "Неизвестное событие."
 
 class LogProcessor:
     def __init__(self, file_path):
         self.file_path = file_path
 
-    def run(self):
+    def read_existing_lines(self):
+        """Чтение всех существующих строк из файла при запуске."""
         if not os.path.isfile(self.file_path):
             print(f"Ошибка: Файл не найден по пути: {self.file_path}")
-            return
+            return []
 
         try:
             with open(self.file_path, 'r', encoding='utf-8') as file:
-                mmapped_file = mmap.mmap(file.fileno(), 0, access=mmap.ACCESS_READ)
-                lines = mmapped_file.read().decode('utf-8').splitlines()
-
-                if not lines:
-                    print("Ошибка: Файл пуст.")
-                    return
-
-                results = parse_log_block(lines)
-
-                if not results:
-                    print("Нет распарсенных данных.")
-                    return
-
-                # Выводим результаты в консоль
-                for result in results:
-                    print(result)
+                lines = file.readlines()
+                return lines
 
         except (IOError, OSError) as e:
             print(f"Ошибка при чтении файла: {str(e)}")
-        except MemoryError:
-            print("Ошибка: недостаточно памяти для обработки файла.")
-        except KeyError as e:
-            print(f"Ошибка доступа к ключу: {str(e)}")
-        except Exception as e:
-            print(f"Неизвестная ошибка: {str(e)}")
+            return []
 
+    def tail_file(self):
+        """Чтение новых строк в реальном времени."""
+        with open(self.file_path, 'r', encoding='utf-8') as file:
+            file.seek(0, os.SEEK_END)
+            while True:
+                line = file.readline()
+                if line:
+                    yield line
+                else:
+                    time.sleep(0.1)
+
+    def run(self):
+        existing_lines = self.read_existing_lines()
+        if not existing_lines:
+            print("Ошибка: Файл пуст или не удалось прочитать.")
+            return
+
+        results = parse_log_block(existing_lines)
+        for result in results:
+            print(result)
+
+        for new_line in self.tail_file():
+            results = parse_log_block([new_line])
+            for result in results:
+                print(result)
 
 if __name__ == "__main__":
-    log_file_path = "C:\\Users\\Fubar\\Downloads\\SquadGam.log"  # ваш путь к файлу
+    log_file_path = "C:\\Users\\Fubar\\Downloads\\SquadGam.log"  # путь к файлу
 
     log_processor = LogProcessor(log_file_path)
-    log_processor.run()
+
+    print("Программа запущена. Для выхода нажмите Enter.")
+    while True:
+        log_processor.run()
+
+        if keyboard.is_pressed('enter'):
+            print("Завершаю работу...")
+            break
+
+        time.sleep(0.1)
