@@ -4,13 +4,12 @@ import os
 import time
 import keyboard
 
-# Настройка логирования
 logging.basicConfig(level=logging.INFO,
                     format='%(asctime)s - %(levelname)s - %(message)s',
                     handlers=[logging.StreamHandler()])
 
 
-# Регулярные выражения для поиска
+# выражения для поиска
 patterns = {
     # Полученный урон
     'damage_received': re.compile(
@@ -122,16 +121,15 @@ def parse_log_block(lines):
     results = []
 
     for line in lines:
-        # Применяем паттерны в порядке вероятности
         for action, pattern in patterns.items():
-            if pattern.match(line):  # Используем match вместо search
+            if pattern.match(line): 
                 match = pattern.match(line)
                 data = match.groupdict()
                 result = format_event(action, data)
 
                 if result:
                     results.append(result)
-                break  # Остановимся на первом найденном совпадении
+                break  
 
     return results
 
