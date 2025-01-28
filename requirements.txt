@@ -1,3 +1,2 @@
-re
-logging
-mmap
+logging~=0.4.9.6
+keyboard~=0.13.5
