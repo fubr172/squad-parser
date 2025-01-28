@@ -257,7 +257,7 @@ class LogProcessor:
                 print(result)
 
 if __name__ == "__main__":
-    log_file_path = "C:\\Users\\Fubar\\Downloads\\SquadGam.log"  # путь к файлу
+    log_file_path = "u log file"  # путь к файлу
 
     log_processor = LogProcessor(log_file_path)
 
