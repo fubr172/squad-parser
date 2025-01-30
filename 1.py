@@ -1,15 +1,23 @@
+import asyncio
 import re
 import logging
-import os
+import subprocess
 import time
+from pathlib import Path
+
+import aiofiles
+import os
+import sys
+
 import keyboard
 
+# Настройка логирования
 logging.basicConfig(level=logging.INFO,
                     format='%(asctime)s - %(levelname)s - %(message)s',
                     handlers=[logging.StreamHandler()])
 
 
-# выражения для поиска
+# Регулярные выражения для поиска
 patterns = {
     # Полученный урон
     'damage_received': re.compile(
@@ -115,25 +123,6 @@ patterns = {
     )
 }
 
-
-def parse_log_block(lines):
-    """Обработка блока строк логов."""
-    results = []
-
-    for line in lines:
-        for action, pattern in patterns.items():
-            if pattern.match(line): 
-                match = pattern.match(line)
-                data = match.groupdict()
-                result = format_event(action, data)
-
-                if result:
-                    results.append(result)
-                break  
-
-    return results
-
-
 def format_event(action, data):
     """Форматирует события в удобочитаемый текст."""
     timestamp = data.get('timestamp')
@@ -208,63 +197,113 @@ def format_event(action, data):
             f"{timestamp} Игрок {player_name} с EOS ID {eos_id} и Steam ID {steam_id} покинул транспорт {vehicle_name} "
             f"({asset_name}) на сиденье {seat_number}.")
 
+    if action == 'unpossess_vehicle':
+        player_name = data.get('player_name', 'неизвестный игрок')
+        eos_id = data.get('eos_id', 'неизвестный EOS ID')
+        steam_id = data.get('steam_id', 'неизвестный Steam ID')
+        vehicle_name = data.get('vehicle_name', 'неизвестный транспорт')
+        asset_name = data.get('asset_name', 'неизвестный актив')
+        seat_number = data.get('seat_number', 'неизвестное сиденье')
+        return (
+            f"{timestamp} Игрок {player_name} с EOS ID {eos_id} и Steam ID {steam_id} покинул транспорт {vehicle_name} "
+            f"({asset_name}) на сиденье {seat_number}.")
+
+    return "Неизвестное событие."
+
+def parse_log_block(lines):
+    """Обработка блока строк логов."""
+    results = []
+    for line in lines:
+        for action, pattern in patterns.items():
+            match = pattern.match(line)
+            if match:
+                result = format_event(action, match.groupdict())
+                if result:
+                    results.append(result)
+                break  # Прекращаем поиск, если найдено совпадение
+    return results
 
 class LogProcessor:
     def __init__(self, file_path):
-        self.file_path = file_path
+        self.file_path = Path(file_path)
 
     def read_existing_lines(self):
         """Чтение всех существующих строк из файла при запуске."""
-        if not os.path.isfile(self.file_path):
-            print(f"Ошибка: Файл не найден по пути: {self.file_path}")
+        if not self.file_path.is_file():
+            logging.error(f"Файл не найден: {self.file_path}")
             return []
 
         try:
-            with open(self.file_path, 'r', encoding='utf-8') as file:
-                lines = file.readlines()
-                return lines
-
+            with self.file_path.open('r', encoding='utf-8', errors='ignore') as file:
+                return file.readlines()
         except (IOError, OSError) as e:
-            print(f"Ошибка при чтении файла: {str(e)}")
+            logging.error(f"Ошибка при чтении файла {self.file_path}: {e}")
             return []
 
-    def tail_file(self):
+    async def tail_file(self):
         """Чтение новых строк в реальном времени."""
-        with open(self.file_path, 'r', encoding='utf-8') as file:
-            file.seek(0, os.SEEK_END)
-            while True:
-                line = file.readline()
-                if line:
-                    yield line
-                else:
-                    time.sleep(0.1)
+        try:
+            with self.file_path.open('r', encoding='utf-8', errors='ignore') as file:
+                file.seek(0, os.SEEK_END)
+                while True:
+                    line = file.readline()
+                    if line:
+                        yield line.strip()
+                    else:
+                        await asyncio.sleep(0.1)
+        except Exception as e:
+            logging.error(f"Ошибка при чтении {self.file_path}: {e}")
 
-    def run(self):
+    async def run(self):
+        """Обработка логов в реальном времени."""
         existing_lines = self.read_existing_lines()
-        if not existing_lines:
-            print("Ошибка: Файл пуст или не удалось прочитать.")
-            return
+        if existing_lines:
+            results = parse_log_block(existing_lines)
+            for result in results:
+                logging.info(result)
 
-        results = parse_log_block(existing_lines)
-        for result in results:
-            print(result)
-
-        for new_line in self.tail_file():
+        async for new_line in self.tail_file():
             results = parse_log_block([new_line])
             for result in results:
-                print(result)
+                logging.info(result)
+
+async def process_log_in_real_time(file_path):
+    """Обрабатывает лог в реальном времени."""
+    try:
+        processor = LogProcessor(file_path)
+        await processor.run()
+    except Exception as e:
+        logging.error(f"Ошибка при обработке {file_path}: {e}")
+
+async def process_multiple_files(files):
+    """Обрабатывает несколько файлов одновременно."""
+    tasks = [process_log_in_real_time(file) for file in files]
+    await asyncio.gather(*tasks)
+
+def process_file_in_new_console(file_path):
+    """Запуск обработки файла в отдельной консоли."""
+    script_path = Path(__file__).resolve()
+    try:
+        if os.name == "nt":
+            subprocess.Popen(["python", script_path, "child", str(file_path)], creationflags=subprocess.CREATE_NEW_CONSOLE)
+        else:
+            subprocess.Popen(["x-terminal-emulator", "-e", "python", script_path, "child", str(file_path)])
+    except Exception as e:
+        logging.error(f"Ошибка при запуске нового процесса: {e}")
 
 if __name__ == "__main__":
-    log_file_path = "u log file"  # путь к файлу
+    if len(sys.argv) > 2 and sys.argv[1] == "child":
+        file_to_process = sys.argv[2]
+        asyncio.run(process_log_in_real_time(file_to_process))
+        input("Нажмите Enter, чтобы закрыть окно...")
+    else:
+        files_to_process = [
+            Path(r"C:\Users\Fubar\Downloads\SquadGam.log").resolve(),
+            Path(r"C:\Users\Fubar\Downloads\SquadGam1.log").resolve(),
+            Path(r"C:\Users\Fubar\Downloads\SquadGam2.log").resolve(),
+            Path(r"C:\Users\Fubar\Downloads\SquadGam3.log").resolve(),
+        ]
 
-    log_processor = LogProcessor(log_file_path)
-
-    print("Программа запущена. Для выхода нажмите Enter.")
-    while True:
-        log_processor.run()
-
-        if keyboard.is_pressed('enter'):
-            print("Завершаю работу...")
-            break
-
-        time.sleep(0.1)
+        # Запускаем обработку каждого файла в новой консоли
+        for file_path in files_to_process:
+            process_file_in_new_console(file_path)
