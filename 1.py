@@ -4,14 +4,11 @@ import logging
 import subprocess
 import time
 from pathlib import Path
-
 import aiofiles
 import os
 import sys
-
 import keyboard
 
-# Настройка логирования
 logging.basicConfig(level=logging.INFO,
                     format='%(asctime)s - %(levelname)s - %(message)s',
                     handlers=[logging.StreamHandler()])
@@ -220,7 +217,7 @@ def parse_log_block(lines):
                 result = format_event(action, match.groupdict())
                 if result:
                     results.append(result)
-                break  # Прекращаем поиск, если найдено совпадение
+                break
     return results
 
 class LogProcessor:
@@ -304,6 +301,5 @@ if __name__ == "__main__":
             Path(r"C:\Users\Fubar\Downloads\SquadGam3.log").resolve(),
         ]
 
-        # Запускаем обработку каждого файла в новой консоли
         for file_path in files_to_process:
             process_file_in_new_console(file_path)
