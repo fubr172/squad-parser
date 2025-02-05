@@ -4,11 +4,14 @@ import logging
 import subprocess
 import time
 from pathlib import Path
+
 import aiofiles
 import os
 import sys
+
 import keyboard
 
+# Настройка логирования
 logging.basicConfig(level=logging.INFO,
                     format='%(asctime)s - %(levelname)s - %(message)s',
                     handlers=[logging.StreamHandler()])
@@ -121,33 +124,7 @@ patterns = {
 }
 
 def format_event(action, data):
-    """
-    Formats game events into a human-readable string.
-
-    This function takes an action type and corresponding data, and returns a formatted string
-    that describes the event in detail.
-
-    Args:
-        action (str): The type of event being formatted (e.g., 'damage_received', 'death').
-        data (dict): A dictionary containing relevant information for the event.
-
-    Returns:
-        str: A formatted string describing the event.
-
-    Event Types:
-        - 'damage_received': Describes when a player receives damage.
-        - 'killing_damage': Describes when a player inflicts fatal damage on another player.
-        - 'wound': Describes when a player is wounded.
-        - 'vehicle_damage': Describes damage inflicted on a vehicle.
-        - 'death': Describes when a player dies.
-        - 'connection': Describes when a player connects to the server.
-        - 'disconnection': Describes when a player disconnects from the server.
-        - 'match_result': Describes the result of a match.
-        - 'unpossess_vehicle': Describes when a player leaves a vehicle.
-
-    If the action type is not recognized, it returns "Неизвестное событие." (Unknown event).
-    """
-
+    """Форматирует события в удобочитаемый текст."""
     timestamp = data.get('timestamp')
 
     if action == 'damage_received':
@@ -216,24 +193,25 @@ def format_event(action, data):
         vehicle_name = data.get('vehicle_name', 'неизвестный транспорт')
         asset_name = data.get('asset_name', 'неизвестный актив')
         seat_number = data.get('seat_number', 'неизвестное сиденье')
-        
-       # Note: This condition was duplicated in your original code; it should only appear once.
-       return (
+        return (
             f"{timestamp} Игрок {player_name} с EOS ID {eos_id} и Steam ID {steam_id} покинул транспорт {vehicle_name} "
             f"({asset_name}) на сиденье {seat_number}.")
-    
+
+    if action == 'unpossess_vehicle':
+        player_name = data.get('player_name', 'неизвестный игрок')
+        eos_id = data.get('eos_id', 'неизвестный EOS ID')
+        steam_id = data.get('steam_id', 'неизвестный Steam ID')
+        vehicle_name = data.get('vehicle_name', 'неизвестный транспорт')
+        asset_name = data.get('asset_name', 'неизвестный актив')
+        seat_number = data.get('seat_number', 'неизвестное сиденье')
+        return (
+            f"{timestamp} Игрок {player_name} с EOS ID {eos_id} и Steam ID {steam_id} покинул транспорт {vehicle_name} "
+            f"({asset_name}) на сиденье {seat_number}.")
+
     return "Неизвестное событие."
 
 def parse_log_block(lines):
-    """
-    Processes a block of log lines and extracts formatted event information.
-
-    Args:
-        lines (list of str): A list of log lines to process.
-
-    Returns:
-        list of str: A list of formatted event strings extracted from the log lines.
-    """
+    """Обработка блока строк логов."""
     results = []
     for line in lines:
         for action, pattern in patterns.items():
@@ -242,33 +220,15 @@ def parse_log_block(lines):
                 result = format_event(action, match.groupdict())
                 if result:
                     results.append(result)
-                break
+                break  # Прекращаем поиск, если найдено совпадение
     return results
 
 class LogProcessor:
-    """
-    A class to handle reading and processing log files.
-
-    Attributes:
-        file_path (Path): The path to the log file.
-    """
-
     def __init__(self, file_path):
-        """
-        Initializes the LogProcessor with the specified file path.
-
-        Args:
-            file_path (str): The path to the log file.
-        """
         self.file_path = Path(file_path)
 
     def read_existing_lines(self):
-        """
-        Reads all existing lines from the log file at startup.
-
-        Returns:
-            list of str: A list of lines read from the file, or an empty list if an error occurs.
-        """
+        """Чтение всех существующих строк из файла при запуске."""
         if not self.file_path.is_file():
             logging.error(f"Файл не найден: {self.file_path}")
             return []
@@ -281,28 +241,21 @@ class LogProcessor:
             return []
 
     async def tail_file(self):
-        """
-        Reads new lines from the log file in real-time.
-
-        Yields:
-            str: New lines read from the file as they are added.
-        """
+        """Чтение новых строк в реальном времени."""
         try:
             with self.file_path.open('r', encoding='utf-8', errors='ignore') as file:
-                file.seek(0, os.SEEK_END)  # Move to the end of the file
+                file.seek(0, os.SEEK_END)
                 while True:
                     line = file.readline()
                     if line:
-                        yield line.strip()  # Yield non-empty lines
+                        yield line.strip()
                     else:
-                        await asyncio.sleep(0.1)  # Wait briefly before checking again
+                        await asyncio.sleep(0.1)
         except Exception as e:
             logging.error(f"Ошибка при чтении {self.file_path}: {e}")
 
     async def run(self):
-        """
-        Processes logs in real-time by reading existing lines and then tailing the file for new entries.
-        """
+        """Обработка логов в реальном времени."""
         existing_lines = self.read_existing_lines()
         if existing_lines:
             results = parse_log_block(existing_lines)
@@ -315,15 +268,7 @@ class LogProcessor:
                 logging.info(result)
 
 async def process_log_in_real_time(file_path):
-    """
-    Processes a specified log file in real-time.
-
-    Args:
-        file_path (str): The path to the log file to be processed.
-    
-    Raises:
-        Exception: If an error occurs during processing.
-    """
+    """Обрабатывает лог в реальном времени."""
     try:
         processor = LogProcessor(file_path)
         await processor.run()
@@ -331,38 +276,19 @@ async def process_log_in_real_time(file_path):
         logging.error(f"Ошибка при обработке {file_path}: {e}")
 
 async def process_multiple_files(files):
-    """
-    Processes multiple log files concurrently.
-
-    Args:
-        files (list of str): A list of paths to the log files to be processed.
-    
-    Raises:
-        Exception: If an error occurs during processing.
-    """
-    tasks = [process_log_in_real_time(file) for file in files]
+    """Обрабатывает несколько файлов в одном событийном цикле"""
+    tasks = []
+    for file in files:
+        task = asyncio.create_task(process_log_in_real_time(file))
+        tasks.append(task)
     await asyncio.gather(*tasks)
 
 def process_file_in_new_console(file_path):
-    """
-    Launches processing of a specified log file in a new console window.
-
-    Args:
-        file_path (str): The path to the log file to be processed in a new console.
-    
-    Raises:
-        Exception: If an error occurs while starting a new process.
-    """
     script_path = Path(__file__).resolve()
     try:
-        if os.name == "nt":
-            subprocess.Popen(["python", script_path, "child", str(file_path)],
-                             creationflags=subprocess.CREATE_NEW_CONSOLE)
-        else:
-            subprocess.Popen(["x-terminal-emulator", "-e", "python", script_path, "child", str(file_path)])
+        subprocess.Popen(["python", script_path, "child", str(file_path)])
     except Exception as e:
         logging.error(f"Ошибка при запуске нового процесса: {e}")
-
 
 if __name__ == "__main__":
     if len(sys.argv) > 2 and sys.argv[1] == "child":
@@ -377,5 +303,6 @@ if __name__ == "__main__":
             Path(r"").resolve(),
         ]
 
+        # Запускаем обработку каждого файла в новой консоли
         for file_path in files_to_process:
             process_file_in_new_console(file_path)
